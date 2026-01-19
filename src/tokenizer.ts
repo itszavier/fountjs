@@ -8,6 +8,7 @@ export interface Token {
     | "transition";
   value: string;
   forced?: boolean;
+  centered?: boolean;
 }
 
 const sceneTags = [
@@ -99,6 +100,11 @@ const isTransition = (
   );
 };
 
+function isCentered(line: string) {
+  const lineTrim = line.trim();
+  return lineTrim.startsWith(">") && lineTrim.endsWith("<");
+}
+
 function isCredit(line: string) {
   const creditKeys = ["Title:", "Credit:", "Author:", "Draft Date:", "Source:"];
   return creditKeys.some((key) => line.startsWith(key));
@@ -116,21 +122,45 @@ function Tokenize(fountainText: string) {
 
     if (!line) continue;
 
-    if (line.startsWith("!")) {
+    if (line.trim().startsWith("!")) {
       line = line.slice(1).trim(); // remove the !
-      let forcedToken: any;
-
-      // Simple forced detection: scene, character, else action
-      if (startWithAny(line, sceneTags)) {
-        forcedToken = { type: "scene", value: line, forced: true };
-      } else if (line === line.toUpperCase() && line.length < 30) {
-        forcedToken = { type: "character", value: line, forced: true };
-      } else {
-        forcedToken = { type: "action", value: line, forced: true };
-      }
-
+      const forcedToken: Token = {
+        type: "action",
+        value: line,
+        forced: true,
+      };
       tokens.push(forcedToken);
       continue; // skip normal detection
+    }
+
+    if (line.trim().startsWith(">") && !isCentered(line)) {
+      const forcedToken: Token = {
+        type: "transition",
+        value: line,
+        forced: true,
+      };
+      tokens.push(forcedToken);
+      continue;
+    }
+
+    if (line.startsWith("@")) {
+      const forcedToken: Token = {
+        type: "character",
+        value: line,
+        forced: true,
+      };
+      tokens.push(forcedToken);
+      continue;
+    }
+
+    if (line.trim().startsWith(".")) {
+      const forcedToken: Token = {
+        type: "scene",
+        value: line,
+        forced: true,
+      };
+      tokens.push(forcedToken);
+      continue;
     }
 
     if (isCredit(line)) {
@@ -168,6 +198,13 @@ function Tokenize(fountainText: string) {
       const token = {
         type: "dialogue",
         value: line,
+      };
+      tokens.push(token);
+    } else if (isCentered(line)) {
+      const token = {
+        type: "action",
+        value: line.replaceAll(/^[>]+|[<]+$/g, "").trim(),
+        centered: true,
       };
       tokens.push(token);
     } else if (line.trim().length > 0) {

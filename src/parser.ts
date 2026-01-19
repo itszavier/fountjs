@@ -4,6 +4,7 @@ import { Tokenize, type Token } from "./tokenizer";
 export interface Action {
   type: "action";
   value: string;
+  forced?: boolean;
 }
 
 // Dialogue token
@@ -12,12 +13,14 @@ export interface Dialogue {
   character: string;
   parenthetical: string | null;
   value: string;
+  forced?: boolean;
 }
 
 // Transition token
 export interface Transition {
   type: "transition";
   value: string;
+  forced?: boolean;
 }
 
 // Anything that can be inside a scene
@@ -28,6 +31,7 @@ export interface SceneBlock {
   type: "scene";
   value: string; // Scene header
   content: SceneContent[];
+  forced?: boolean;
 }
 
 // Top-level parsed structure
@@ -50,7 +54,12 @@ export function Parser(fountainText: string): ParsedScreenplay {
 
     // Start a new scene
     if (token.type === "scene") {
-      currentScene = { type: "scene", value: token.value, content: [] };
+      currentScene = {
+        type: "scene",
+        value: token.value,
+        content: [],
+        ...(token.forced && { forced: token.forced }),
+      };
       data.push(currentScene);
       lastCharacter = null;
       lastParenthetical = null;
@@ -65,6 +74,7 @@ export function Parser(fountainText: string): ParsedScreenplay {
         targetArray.push({
           type: "action",
           value: token.value,
+          ...(token.forced && { forced: token.forced }),
         });
         break;
 
@@ -72,6 +82,7 @@ export function Parser(fountainText: string): ParsedScreenplay {
         targetArray.push({
           type: "transition",
           value: token.value,
+          ...(token.forced && { forced: token.forced }),
         });
         break;
 
@@ -90,6 +101,7 @@ export function Parser(fountainText: string): ParsedScreenplay {
           character: lastCharacter || "",
           parenthetical: lastParenthetical,
           value: token.value,
+          ...(token.forced && { forced: token.forced }),
         });
         lastParenthetical = null;
         break;

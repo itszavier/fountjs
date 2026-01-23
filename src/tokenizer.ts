@@ -8,6 +8,19 @@ type TokenType =
   | "parenthetical"
   | "transition";
 
+export type ParseErrorType =
+  | "UnclosedParenthetical"
+  | "InvalidCharacterName"
+  | "InvalidSceneHeading"
+  | "UnexpectedToken";
+
+export interface ParseError {
+  type: ParseErrorType; // What kind of parsing error it is
+  line: number; // Line number in the original script
+  message: string; // Human-readable description
+  context?: string; // Optional snippet of text that caused the error
+}
+
 export interface Token {
   type: TokenType;
   value: string;
@@ -48,11 +61,11 @@ const parseCharacter = (line: string): CharacterParseResult | null => {
   const parentheticalRegex = /\(([A-Z.\s]+)\)$/; // matches e.g., (V.O.) or (ON SCREEN)
 
   let match: RegExpExecArray | null;
-  
+
   while ((match = parentheticalRegex.exec(text)) !== null) {
     const extension = match[1]!.replace(/\s+/g, " ").trim();
     if (extension) extensions.unshift(extension);
-  
+
     text = text.slice(0, match.index).trim();
   }
   // Remaining text is the name
@@ -118,6 +131,7 @@ function isCredit(line: string) {
 function Tokenize(fountainText: string) {
   const lines = fountainText.split("\n");
   const tokens: any[] = [];
+  const errors: ParseError[] = [];
   const metadata: Record<string, string | null> = {};
 
   // Keeps track of the previous token type
@@ -219,20 +233,80 @@ function Tokenize(fountainText: string) {
       continue;
     }
 
-    if (isParenthetical(line, prev) && prevTokenType === "character") {
-      const token = {
-        type: "parenthetical",
-        value: line.replace(/\(|\)/g, ""),
-      };
-      tokens.push(token);
-      prevTokenType = "parenthetical";
+    const prevIsCharacterOrDialogue =
+      prevTokenType === "character" || prevTokenType === "dialogue";
+
+    if (line.trim().startsWith("(") && prevIsCharacterOrDialogue) {
+      // Case 1: Single unclosed parenthetical followed by empty line -> treat as dialogue
+      if (!line.endsWith(")") && (!next || next.trim() === "")) {
+        tokens.push({
+          type: "dialogue",
+          value: line.slice(1).trim(), // remove opening '('
+        });
+        prevTokenType = "dialogue";
+        continue;
+      }
+
+      // Case 2: Single-line parenthetical
+      if (line.endsWith(")")) {
+        const token = {
+          type: "parenthetical",
+          value: line.slice(1, -1),
+        };
+        tokens.push(token);
+        prevTokenType = "parenthetical";
+        continue;
+      }
+
+      // Case 3: Multi-line parenthetical
+      let buffer = line;
+      const MAX_LINE: number = 3;
+      let usedlines: number = 0;
+      let j: number = i + 1;
+
+      let closed: boolean = false;
+
+      while (j < lines.length && usedlines < MAX_LINE) {
+        const l = lines[j];
+
+        if (!l || l.trim() === "") break;
+        buffer += " " + l.trim();
+
+        usedlines++;
+        if (l.trim().endsWith(")")) {
+          const token = {
+            type: "parenthetical",
+            value: buffer.trim().slice(1, -1).trim(),
+          };
+          tokens.push(token);
+          prevTokenType = "parenthetical";
+          closed = true;
+          i = j; // advance the cursor to the next line
+          break;
+        }
+        j++;
+      }
+
+      if (!closed) {
+        errors.push({
+          type: "UnclosedParenthetical",
+          line: i,
+          message: "Parenthetical was not closed within 3 lines.",
+          context: buffer,
+        });
+
+        tokens.push({
+          type: "parenthetical",
+          value: buffer.trim(),
+        });
+
+        continue;
+      }
       continue;
     }
-
-    const prevIsCharacterOrDialogue =
+    const prevIsCharacterOrParenthetical =
       prevTokenType === "character" || prevTokenType === "parenthetical";
-
-    if (line.trim().length > 0 && prevIsCharacterOrDialogue) {
+    if (line.trim().length > 0 && prevIsCharacterOrParenthetical) {
       const token = {
         type: "dialogue",
         value: line.trim(),
@@ -264,7 +338,7 @@ function Tokenize(fountainText: string) {
     }
   }
 
-  return { metadata, tokens };
+  return { metadata, tokens, errors };
 }
 
 export { Tokenize };
